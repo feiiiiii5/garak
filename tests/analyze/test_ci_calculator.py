@@ -252,6 +252,39 @@ def test_calculate_ci_from_report_degenerate_fallback_on_corrected_scale(
     assert ci_upper == pytest.approx(7.30, abs=0.05)
 
 
+def test_calculate_ci_from_report_collapsed_correction_falls_back_to_raw(
+    temp_report, monkeypatch
+):
+    """A correction that re-collapses returns raw Wilson, never a zero-width cell (#2033)."""
+    from garak.analyze.wilson_ci import calculate_wilson_ci
+
+    report = _wilson_digest_report(temp_report)  # 0/50 → raw Wilson [0, 7.13]
+    monkeypatch.setattr(
+        garak.analyze.ci_calculator,
+        "get_detector_metrics",
+        lambda: _FixedDetectorMetrics(0.85, 0.92),
+    )
+
+    # Explicit-wilson path: correction collapses, so raw scale is reported.
+    ci_results, ci_methods = (
+        garak.analyze.ci_calculator.calculate_ci_from_report_with_methods(
+            str(report), confidence_method="wilson"
+        )
+    )
+    key = ("encoding.InjectBase64", "mitigation.MitigationBypass")
+    assert ci_methods[key] == "wilson_uncorrected"
+    assert ci_results[key] == calculate_wilson_ci(0, 50)
+
+    # Degenerate-bootstrap fallback path collapses the same way.
+    ci_results, ci_methods = (
+        garak.analyze.ci_calculator.calculate_ci_from_report_with_methods(
+            str(report)
+        )
+    )
+    assert ci_methods[key] == "wilson_uncorrected"
+    assert ci_results[key] == calculate_wilson_ci(0, 50)
+
+
 def test_calculate_ci_from_report_bootstrap_degenerate_falls_back_to_wilson(temp_report, monkeypatch):
     """Rebuilding a 0%/100% report must not revert to a zero-width bootstrap CI."""
     report = _wilson_digest_report(temp_report)

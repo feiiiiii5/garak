@@ -17,8 +17,12 @@ import garak.attempt
 import garak.analyze
 import garak.analyze.calibration
 import garak.analyze.detector_metrics
-from garak.analyze.bootstrap_ci import apply_detector_correction, calculate_bootstrap_ci
-from garak.analyze.wilson_ci import calculate_wilson_ci, fallback_wilson_if_degenerate
+from garak.analyze.bootstrap_ci import calculate_bootstrap_ci
+from garak.analyze.wilson_ci import (
+    apply_correction_or_raw,
+    calculate_wilson_ci,
+    fallback_wilson_if_degenerate,
+)
 import garak.resources.theme
 
 # Minimum CI width (in percentage points) to display in output
@@ -144,18 +148,20 @@ class Evaluator:
         ci_method = getattr(_config.reporting, "confidence_interval_method")
         min_sample_size = _config.reporting.bootstrap_min_sample_size
         if ci_method == "wilson" and outputs_evaluated >= min_sample_size:
-            confidence_method = "wilson"
             se, sp = self.detector_metrics.get_detector_se_sp(detector_name)
-            ci_lower, ci_upper = calculate_wilson_ci(
+            wilson = calculate_wilson_ci(
                 successes=fails,
                 n=outputs_evaluated,
                 confidence_level=_config.reporting.bootstrap_confidence_level,
-            ) or (None, None)
-            if ci_lower is not None:
+            )
+            if wilson is None:
+                ci_lower, ci_upper, confidence_method = None, None, None
+            else:
                 # Map onto the Se/Sp-corrected ASR scale so wilson and
-                # bootstrap rows report one estimand (#2033).
-                ci_lower, ci_upper = apply_detector_correction(
-                    (ci_lower, ci_upper), se, sp
+                # bootstrap rows report one estimand (#2033); when the
+                # correction collapses, keep raw Wilson under its own label.
+                ci_lower, ci_upper, confidence_method = apply_correction_or_raw(
+                    wilson, se, sp
                 )
         elif ci_method == "bootstrap" and outputs_evaluated >= min_sample_size:
             confidence_method = "bootstrap"
@@ -181,7 +187,7 @@ class Evaluator:
                             specificity=sp,
                         )
                     )
-                    if confidence_method == "wilson":
+                    if confidence_method in ("wilson", "wilson_uncorrected"):
                         logging.warning(
                             "Bootstrap CI degenerate for %s (probe: %s, n=%d); "
                             "reporting Wilson interval [%.2f%%, %.2f%%] instead "

@@ -8,11 +8,11 @@ from typing import Optional, Dict, List, Tuple
 
 from garak import _config
 from garak.analyze.bootstrap_ci import (
-    apply_detector_correction,
     calculate_bootstrap_ci,
 )
 from garak.analyze.detector_metrics import get_detector_metrics
 from garak.analyze.wilson_ci import (
+    apply_correction_or_raw,
     calculate_wilson_ci,
     fallback_wilson_if_degenerate,
 )
@@ -106,7 +106,9 @@ def calculate_ci_from_report_with_methods(
     """Calculate CIs, also returning the method used for each pair.
 
     Returns ``(ci_results, ci_methods)`` where ``ci_methods[key]`` is
-    ``"bootstrap"`` or ``"wilson"`` for every pair in ``ci_results``.
+    ``"bootstrap"``, ``"wilson"``, or ``"wilson_uncorrected"`` (raw-scale
+    Wilson when the Se/Sp correction collapses) for every pair in
+    ``ci_results``.
     """
     report_file = Path(report_path)
 
@@ -202,16 +204,22 @@ def calculate_ci_from_report_with_methods(
                 se, sp = detector_metrics.get_detector_se_sp(detector_key)
 
                 if ci_method == "wilson":
-                    ci_result = calculate_wilson_ci(
+                    wilson = calculate_wilson_ci(
                         successes=failed,
                         n=total,
                         confidence_level=confidence_level,
                     )
-                    if ci_result is not None:
+                    if wilson is not None:
                         # Report on the Se/Sp-corrected ASR scale so wilson
-                        # and bootstrap rows share one estimand (#2033).
-                        ci_result = apply_detector_correction(ci_result, se, sp)
-                    method = "wilson" if ci_result is not None else None
+                        # and bootstrap rows share one estimand (#2033); when
+                        # the correction collapses, keep the raw Wilson bounds
+                        # under a distinct label instead of a zero-width cell.
+                        ci_lower, ci_upper, method = apply_correction_or_raw(
+                            wilson, se, sp
+                        )
+                        ci_result = (ci_lower, ci_upper)
+                    else:
+                        ci_result, method = None, None
                 elif ci_method == "bootstrap":
                     ci_result = calculate_bootstrap_ci(
                         results=binary_results,

@@ -144,3 +144,34 @@ def test_fallback_wilson_if_degenerate_applies_detector_correction():
     )
     assert method == "wilson"
     assert ci_upper == pytest.approx(27.8, abs=0.1)
+
+
+def test_fallback_rechecks_degeneracy_after_correction():
+    """A correction that re-collapses must not return a zero-width "wilson" cell (#2033)."""
+    # 10/10 at n=10, Se=Sp=0.60: Wilson [72.25, 100] corrects to [100, 100].
+    ci_lower, ci_upper, method = fallback_wilson_if_degenerate(
+        100.0, 100.0, successes=10, n=10, sensitivity=0.6, specificity=0.6
+    )
+    assert method == "wilson_uncorrected"
+    assert (ci_lower, ci_upper) == calculate_wilson_ci(10, 10)
+    assert ci_lower < ci_upper
+
+    # 0/50 with Sp=0.92: raw upper 7.13% corrects to (0.0713-0.08)/0.77 < 0.
+    ci_lower, ci_upper, method = fallback_wilson_if_degenerate(
+        0.0, 0.0, successes=0, n=50, sensitivity=0.85, specificity=0.92
+    )
+    assert method == "wilson_uncorrected"
+    assert (ci_lower, ci_upper) == calculate_wilson_ci(0, 50)
+    assert ci_lower < ci_upper
+
+
+def test_apply_correction_or_raw_keeps_corrected_scale_when_wide():
+    """Non-collapsing corrections stay on the corrected scale labelled "wilson"."""
+    from garak.analyze.wilson_ci import apply_correction_or_raw
+
+    wilson = calculate_wilson_ci(0, 10)
+    assert wilson is not None
+    ci_lower, ci_upper, method = apply_correction_or_raw(wilson, 0.90, 0.85)
+    assert method == "wilson"
+    assert ci_lower == pytest.approx(0.0, abs=0.01)
+    assert ci_upper == pytest.approx(17.00, abs=0.1)

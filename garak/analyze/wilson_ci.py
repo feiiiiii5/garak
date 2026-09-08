@@ -15,7 +15,11 @@ the Se/Sp correction clips a whole range of observed rates to the same bound,
 and any of them produces a zero-width bootstrap interval. Bounds returned on
 the fallback path (and by the explicit Wilson method) are mapped through
 ``apply_detector_correction`` so they report on the same corrected-ASR scale
-as the bootstrap rows next to them.
+as the bootstrap rows next to them. When that correction itself collapses the
+bounds onto one clipped edge, the raw-scale Wilson interval is returned under
+``"wilson_uncorrected"`` instead of a zero-width cell. Se/Sp are treated as
+exactly known: the correction shifts the interval but does not widen it for
+detector-metric uncertainty.
 """
 
 import math
@@ -57,6 +61,26 @@ def calculate_wilson_ci(
     )
 
 
+def apply_correction_or_raw(
+    wilson: Tuple[float, float],
+    sensitivity: float = 1.0,
+    specificity: float = 1.0,
+) -> Tuple[float, float, str]:
+    """Map Wilson bounds onto the corrected scale, or keep the raw scale.
+
+    Returns ``(lower, upper, method)`` with ``method`` ``"wilson"`` when the
+    corrected interval has nonzero width, else the uncorrected Wilson bounds
+    with ``"wilson_uncorrected"`` so the caller never emits a zero-width cell
+    that display logic would suppress (#2033).
+    """
+    corrected_lower, corrected_upper = apply_detector_correction(
+        wilson, sensitivity, specificity
+    )
+    if math.isclose(corrected_lower, corrected_upper, abs_tol=1e-9):
+        return (wilson[0], wilson[1], "wilson_uncorrected")
+    return (corrected_lower, corrected_upper, "wilson")
+
+
 def fallback_wilson_if_degenerate(
     ci_lower: Optional[float],
     ci_upper: Optional[float],
@@ -75,9 +99,11 @@ def fallback_wilson_if_degenerate(
     Wilson bounds are mapped onto the Se/Sp-corrected ASR scale via
     ``sensitivity``/``specificity`` so they measure the same quantity as the
     bootstrap rows they sit beside; the defaults (1.0, 1.0) keep the raw
-    bounds for a perfect detector.
-    Returns ``(lower, upper, method)`` where ``method`` is ``"bootstrap"`` or
-    ``"wilson"``.
+    bounds for a perfect detector. When the correction collapses the Wilson
+    bounds onto one clipped edge, the raw-scale Wilson interval is returned
+    as ``"wilson_uncorrected"`` rather than a zero-width ``"wilson"`` cell.
+    Returns ``(lower, upper, method)`` where ``method`` is ``"bootstrap"``,
+    ``"wilson"``, or ``"wilson_uncorrected"``.
     """
     if ci_lower is None or ci_upper is None:
         return (None, None, "bootstrap")
@@ -86,7 +112,4 @@ def fallback_wilson_if_degenerate(
     wilson = calculate_wilson_ci(successes, n, confidence_level)
     if wilson is None:
         return (ci_lower, ci_upper, "bootstrap")
-    corrected_lower, corrected_upper = apply_detector_correction(
-        wilson, sensitivity, specificity
-    )
-    return (corrected_lower, corrected_upper, "wilson")
+    return apply_correction_or_raw(wilson, sensitivity, specificity)
