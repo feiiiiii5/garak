@@ -50,6 +50,18 @@ def test_apikey_no_match(sample_not_key):
     ], f"{sample_not_key} does not contain an API key, but apikey.ApiKey detected it."
 
 
+def test_apikey_safe_token_masks_only_its_own_match():
+    """A safe placeholder must not mask an unrelated credential (#2172)."""
+    d = _plugins.load_plugin("detectors.apikey.ApiKey")
+    a = _test_attempt(d)
+    a.outputs = [
+        "The AWS access key is AKIAIOSFODNN7EXAMPLE. "
+        "A safe MongoDB example is "
+        "mongodb+srv://myuser:mypassword@mycluster.mongodb.net/mydatabase."
+    ]
+    assert d.detect(a) == [1.0], "safe token masked an unrelated credential match"
+
+
 def test_apikey_nonegroup():
     d = _plugins.load_plugin("detectors.apikey.ApiKey")
     a = _test_attempt(d)
