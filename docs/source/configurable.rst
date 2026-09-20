@@ -279,7 +279,7 @@ Reporting Config Items
      python -m garak --confidence_interval_method wilson ...  # Wilson score intervals instead of bootstrap
   
   .. note::
-     **Reading ``confidence_method`` in ``report.jsonl``.** Eval entries
+     **Reading a report:** Eval entries
      with confidence intervals record the producing method in a
      ``confidence_method`` field: ``bootstrap``, ``wilson``, or
      ``wilson_uncorrected``. ``wilson`` bounds sit on the same
